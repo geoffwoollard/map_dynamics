@@ -5,10 +5,13 @@ from skcuda import linalg
 
 linalg.init() # TODO go inside function?
 
-def hess_to_eig(hess,nmodes=None, shift=None):
+def hess_to_eig(hess,nmodes=20, shift=6):
   #TODO add nmodes and shift
   assert max(hess.shape) < 20000
   hess = np.array(hess, np.float32, order='F')
   hess_gpu = gpuarray.to_gpu(hess)
-  vr_gpu, w_gpu = linalg.eig(hess_gpu, 'N', 'V')
-  return(vr_gpu.get().T, w_gpu.get())
+  vec_gpu, val_gpu = linalg.eig(hess_gpu, 'N', 'V')
+  vec,val = vec_gpu.get().T, val_gpu.get()
+  vec = vec[:,shift:shift+nmodes]
+  val = val[shift:shift+nmodes]
+  return(vec,val)

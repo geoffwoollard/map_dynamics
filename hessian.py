@@ -3,6 +3,8 @@ from numba import jit
 
 @jit
 def hess_from_coords(coords,cutoff=15.,gamma=1.):
+    #TODO: sparse scipy
+    assert coords.shape[1] == 3, 'coords shape is not Nx3'
     dof = coords.size
     n_atoms = coords.shape[0]
     assert np.isclose(dof / 3.,n_atoms)

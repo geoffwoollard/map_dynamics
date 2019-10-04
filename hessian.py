@@ -25,8 +25,10 @@ def hess_from_coords(coords,cutoff=15.,gamma=1.):
             res_j3 = j*3
             res_j33 = res_j3+3
             super_element = np.outer(i2j, i2j) * (- g / dist2)
+            #TODO: try to vectorize local transpose symetry
             hessian[res_i3:res_i33, res_j3:res_j33] = super_element
             hessian[res_j3:res_j33, res_i3:res_i33] = super_element
+            # TODO: test vectorized summing up rows/cols outside of j loop
             hessian[res_i3:res_i33, res_i3:res_i33] = \
                 hessian[res_i3:res_i33, res_i3:res_i33] - super_element
             hessian[res_j3:res_j33, res_j3:res_j33] = \

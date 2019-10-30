@@ -79,17 +79,19 @@ def do_projection(hessian,coords, blks, project, natoms, nblocks, nb6, maxsize):
     hessian_block = np.linalg.multi_dot([project.T,hessian,project])
     return(hessian_block,project)
 
-def make_sparse(arr):
-    return(scipy.sparse.lil_matrix(arr))
+def make_sparse(arr,sparse_encoding=scipy.sparse.csr_matrix):
+    '''func scipy.sparse.lil_matrix etc
+    '''
+    return(sparse_encoding(arr))
 
 def sparse_dot(hessian_anm_s,project_s):
     '''ms instead of 2min for 27k x 27k with 0.5 % filled hessian_anm'''
-    hessian_blk_s = project_s.T * hessian_anm_s * project_s
+    hessian_blk_s = project_s.T @ hessian_anm_s @ project_s
     return(hessian_blk_s)
 
-def do_sparse_dot_wrapper(hessian_anm,project):
-    hessian_anm_s = make_sparse(hessian_anm)
-    project_s = make_sparse(project)
+def do_sparse_dot_wrapper(hessian_anm,project,**kwargs):
+    hessian_anm_s = make_sparse(hessian_anm,**kwargs)
+    project_s = make_sparse(project,**kwargs)
     hessian_blk_s = sparse_dot(hessian_anm_s,project_s)
     hessian_blk_s_d = hessian_blk_s.dense()
     return(hessian_blk_s_d)

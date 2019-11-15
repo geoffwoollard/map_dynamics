@@ -221,7 +221,7 @@ def hess_from_coords_coo_kdtree(coords,gamma=1., sparsity=0.07,kdtree_indeces=No
     return(hess_data, hess_rows, hess_cols,hess_diagonals)
 
 def kdtree_idx_from_coords(coords,cutoff=15.,method='cKDTree'):
-    elif method == 'cKDTree':
+    if method == 'cKDTree':
         kdt = scipy.spatial.cKDTree(coords)
         kdtree_indeces = np.array(list(kdt.query_pairs(cutoff)))
     elif method == 'KDTree':

@@ -30,4 +30,4 @@ def blk_hess_to_eig(hess,project,nmodes=20,shift=6):
 def sparse_hess_to_eig(hess_s,nmodes=20,shift=6,which='SM'):
     vals, vecs = scipy.sparse.linalg.eigsh(hess_s,k=nmodes+shift,which=which) # because h_blk_s symmetric
     # TODO: remove zeros once figure out if before or after
-    return(vals, vecs)
+    return(vals[shift:], vecs[:,shift:])

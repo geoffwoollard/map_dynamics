@@ -17,6 +17,21 @@ class Increment(object):
 
 
 def calc_projection_setup(coords, blks, natoms):
+    '''
+    array (natoms x 3 ) coords: xyz coordinates
+    array blks: block indeces, with arbitrary integers
+    int natoms: number of atoms
+
+    return 
+        array (3 x n) coords: transpose of coords
+        array blks: array of block indeces, starting at 1 and ascending by 1
+        array (n x nb6) project: 
+        int natoms
+        int nblocks: number of blocks
+        int nb6: size of projection matrix. calculated in this function. six times number of blocks, minus the blocks of size 1
+        int maxsize: the size of the longest block
+    '''
+
     #natoms = self._n_atoms
 
     if natoms != len(blks):
@@ -52,8 +67,6 @@ def calc_projection_setup(coords, blks, natoms):
 
     coords = coords.T.astype(float, order='C')
 
-    # hessian = self._hessian
-    # TODO: remove hessian into another function
     project = np.zeros((natoms * 3, nb6), float)
 
     return(coords, blks, project, natoms, nblocks, nb6, maxsize)

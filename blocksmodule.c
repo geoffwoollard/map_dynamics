@@ -104,40 +104,46 @@ static PyObject *calc_projection(PyObject *self, PyObject *args, PyObject *kwarg
 				   &natm, &nblx, &bdim, &bmx))
     return NULL;
 
-  XYZ = (double *) PyArray_DATA(coords);
-  BLK = (int *) PyArray_DATA(blocks);
-  proj = (double *) PyArray_DATA(projection);
+  XYZ = (double *) PyArray_DATA(coords); // coordinates
+  BLK = (int *) PyArray_DATA(blocks); // array of blocks
+  proj = (double *) PyArray_DATA(projection); // empty projection matrix
 
   /* First allocate a PDB_File object to hold the coordinates and block
      indices of the atoms.  This wastes a bit of memory, but it prevents
      the need to re-write all of the RTB functions that are used in
      standalone C code. */
-  PDB.atom = malloc((size_t)((natm+2)*sizeof(Atom_Line)));
+  PDB.atom = malloc((size_t)((natm+2)*sizeof(Atom_Line))); // not sure why natm+2 instead of just natm
   if (!PDB.atom) return PyErr_NoMemory();
   for (i=1; i<=natm; i++){
-    PDB.atom[i].model = BLK[i-1];
+    PDB.atom[i].model = BLK[i-1]; // block of atom i stored in PDB.atom[i].model 
     for(j=0; j<3; j++)
-      PDB.atom[i].X[j] = XYZ[j*natm+i-1];
+      PDB.atom[i].X[j] = XYZ[j*natm+i-1]; // coord of atom i, xyz j stored in PDB.atom[i].X[j]
   }
 
 
   /* Find the projection matrix */
-  hsize = 18*bmx*nblx > 12*natm ? 12*natm : 18*bmx*nblx;
+  hsize = 18*bmx*nblx > 12*natm ? 12*natm : 18*bmx*nblx; // min of 12*natoms, 18*size_of_largest_block*number_of_blocks. should always be 12*natoms, no matter the blocks distribution, I think
 
-  HH.IDX = imatrix(1, hsize, 1, 2);
-  HH.X = dvector(1, hsize);
-  elm = dblock_projections2(&HH, &PDB, natm, nblx, bmx);
+  HH.IDX = imatrix(1, hsize, 1, 2); // 2d int array of integers (hsize,2)
+  HH.X = dvector(1, hsize); // 1d double array (hsize)
+  elm = dblock_projections2(&HH, &PDB, natm, nblx, bmx); 
+  /* 
+  fills out HH.IDX and HH.X
+  leaves PDB untouched, just reads coords from it
+  returns int elm
+
+  */
 
   PP.IDX = imatrix(1, elm, 1, 2);
   PP.X = dvector(1, elm);
-  for (i=1; i<=elm; i++){
+  for (i=1; i<=elm; i++){ // PP copy of HH, up to elm
     PP.IDX[i][1] = HH.IDX[i][1];
     PP.IDX[i][2] = HH.IDX[i][2];
     PP.X[i] = HH.X[i];
   }
   free_imatrix(HH.IDX, 1, hsize, 1, 2);
   free_dvector(HH.X, 1, hsize);
-  dsort_PP2(&PP, elm, 1);
+  dsort_PP2(&PP, elm, 1); // PP sorted in ascending order of PP.IDX[:][1]. PP.IDX[i][1] and PP.IDX[i][2] and PP.X[i] correspond
 
   /* Cast the block Hessian and projection matrix into 1D arrays. */
   copy_prj_ofst(&PP, proj, elm, bdim);
@@ -366,23 +372,23 @@ void copy_prj_ofst(dSparse_Matrix *PP, double *proj, int elm, int bdim)
 
   for(i=1;i<=elm;i++)
     if(PP->IDX[i][2]>max)
-      max=PP->IDX[i][2];
-  I1=ivector(1, max);
+      max=PP->IDX[i][2]; // max is max of IDX[:][2] (ie column number)
+  I1=ivector(1, max); // 1d int array (max)
   I2=ivector(1, max);
   for(i=1;i<=max;i++) I1[i]=0;
   for(i=1;i<=elm;i++)
-    I1[PP->IDX[i][2]]=PP->IDX[i][2];
+    I1[PP->IDX[i][2]]=PP->IDX[i][2]; // like python's range, except if missing values in IDX[:][2] they have zero in that index in I1
   for(i=1;i<=max;i++)
   {
     if(I1[i]!=0) j++;
-    I2[i]=j;
+    I2[i]=j; // I2 is like I1 with gaps of zeros filled in with repeating lower number, and increments by 1 (1 2 3 0 5 0 0 8) --> (1 2 3 *3* 4 *4* *4* 5)
   }
 
   // double s = 0;
   for(i=1; i<=elm; i++)
     if(PP->X[i] != 0.0)
     {
-      proj[bdim*(PP->IDX[i][1]-1) + I2[PP->IDX[i][2]]-1] = PP->X[i];
+      proj[bdim*(PP->IDX[i][1]-1) + I2[PP->IDX[i][2]]-1] = PP->X[i]; // 2d array cast in 1d
       // s += PP->X[i];
     }
 
@@ -427,14 +433,14 @@ int dblock_projections2(dSparse_Matrix *PP, PDB_File *PDB,
 
 
   /* INITIALIZE BLOCK ARRAYS */
-  elm = 0;
-  X = dmatrix(1, bmx, 1, 3);
-  IDX = ivector(1, bmx);
-  CM = dvector(1, 3);
-  I = dmatrix(1, 3, 1, 3);
-  IC = dmatrix(1, 3, 1, 3);
-  W = dvector(1, 3);
-  A = dmatrix(1, 3, 1, 3);
+  elm = 0; // elm is zerod outside of b loop. cumulative over all blocks
+  X = dmatrix(1, bmx, 1, 3); // 2d double array (bmx,3) for coords of block
+  IDX = ivector(1, bmx); // 1d int array (bmx) of indeces of atoms in block. set to max size with zeros after when shorter block
+  CM = dvector(1, 3); // 1d int array (3) of centre of mass for a block. zeroed for every new block
+  I = dmatrix(1, 3, 1, 3); // 2d double array (3,3) for inertia tensor for a block
+  IC = dmatrix(1, 3, 1, 3); // 2d double array (3,3) copy of inertia tensor. 
+  W = dvector(1, 3); // 1d adouble rray (3) for eigenvalues from svd of inertia tensor
+  A = dmatrix(1, 3, 1, 3); // 2d double array (3,3) for eigenvectors from svd of inertia tensor
   ISQT = dmatrix(1, 3, 1, 3);
 
   /* CYCLE THROUGH BLOCKS */
@@ -449,42 +455,53 @@ int dblock_projections2(dSparse_Matrix *PP, PDB_File *PDB,
     }
 
     /* STORE VALUES FOR CURRENT BLOCK */
-    nbp = 0;
+    nbp = 0; 
+    /* after this loop nbp should be the size of that block 
+    because the loop goes through all the atoms and increments nbp 
+    when the block from atom[i].model matches the block from b
+    */
     for (i=1; i<=nres; i++)
     {
       if (PDB->atom[i].model==b)
       {
-	      IDX[++nbp] = i;
+	      IDX[++nbp] = i; 
+	      /* 
+	      IDX is list of indeces (i) of atoms in block b. if blocks are [1 2 3 3 4 4 4] 
+	      then for b=1 IDX=[1], b=2 IDX=[2], b=3 IDX = [3,4] for b=5 IDX=[5,6]
+	      We overwrite past values in IDX
+	      IDX will have old values from a bigger block, once we have a smaller block than we had before.
+	      IDX's size is set to a max of the largest block size, so it will be big enough for all blocks
+	      */
 	      for (j=1; j<=3; j++){
 	        x = (double)PDB->atom[i].X[j-1];
-	        X[nbp][j] = x;
-	        CM[j] += x;
+	        X[nbp][j] = x; // fill in coords of residue in block nbp and xyz coord j
+	        CM[j] += x; // accumulate this coord for centre of mass calculation (divide later)
       	}
       }
     }
 
     /* TRANSLATE BLOCK CENTER OF MASS TO ORIGIN */
-    for (j=1; j<=3; j++) CM[j] /= (double)nbp;
+    for (j=1; j<=3; j++) CM[j] /= (double)nbp; // nbp is now the total number of residues for this block, so divide it out to normalize 
     for (i=1; i<=nbp; i++)
       for (j=1; j<=3; j++)
-	      X[i][j] -= CM[j];
+	      X[i][j] -= CM[j]; // subtract off centre of mass for each element in the block coord matrix
 
     /* CALCULATE INERTIA TENSOR */
     for(k=1; k<=nbp; k++)
     {
-      dd = 0.0;
+      dd = 0.0; // dd zeroed every new atom in the block coord matrix
       for(j=1; j<=3; j++)
       {
         df = X[k][j];
-        dd += df*df;
+        dd += df*df; // dd = x**2 + y**2 + z**2. 
       }
-      for(i=1; i<=3; i++)
+      for(i=1; i<=3; i++) // I is 3x3 
       {
-        I[i][i] += (dd - X[k][i] * X[k][i]);
-        for(j=i+1; j<=3; j++)
+        I[i][i] += (dd - X[k][i] * X[k][i]); // diag elements are -(y**2 + z**2) for x, summed over each atom. etc for y and z
+        for(j=i+1; j<=3; j++) // symmetric matrix, so only need to compute one triangle. this just gets the 3 off diag elements
         {
-          I[i][j] -= X[k][i]*X[k][j];
-          I[j][i] = I[i][j];
+          I[i][j] -= X[k][i]*X[k][j]; // off diag element for i=1,j=2 are -xy, summed over each atom, etc for other off diag elements
+          I[j][i] = I[i][j]; // fill out other triangle (symmetric matrix)
 	      }
       }
     }
@@ -503,12 +520,18 @@ int dblock_projections2(dSparse_Matrix *PP, PDB_File *PDB,
       {
 	      dd = 0.0;
         for(k=1; k<=3; k++)
-          dd += A[i][k]*A[j][k]/sqrt(W[k]);
+          dd += A[i][k]*A[j][k]/sqrt(W[k]); 
         ISQT[i][j] = dd;
       }
+      /* 
+      	(a1x**2+a1y**2+a1z**2)/w1**0.5 	(a1x*a1y/w1 + a2x*a2y/w2 + a3x*a3y/w3) (a1x*a1z/w1 + a2x*a2z/w2 + a3x*a3z/w3) 
+		... 							(a2x**2+a2y**2+a2z**2)/w2**0.5 			...
+		... 							... 									(a3x**2+a3y**2+a3z**2)/w3**0.5
+	*/
+
 
     /* UPDATE PP WITH THE RIGID MOTIONS OF THE BLOCK */
-    tr = 1.0 / sqrt((double)nbp);
+    tr = 1.0 / sqrt((double)nbp); // nbp is number of atoms in block, so not dividing by zero
     // printf("nbp = %d\n", nbp);
 
     for (i=1; i<=nbp; i++)
@@ -518,9 +541,30 @@ int dblock_projections2(dSparse_Matrix *PP, PDB_File *PDB,
 	      6*(b-1)+1 = x-COORDINATE OF BLOCK b */
       for(j=1; j<=3; j++){
         elm++;
-        PP->IDX[elm][1] = 3*(IDX[i]-1)+j;
-        PP->IDX[elm][2] = 6*(b-1)+j;
-        PP->X[elm] = tr;
+        PP->IDX[elm][1] = 3*(IDX[i]-1)+j; /* 
+        PP.IDX[:][1] will index the coords for all blocks, but one block will come after the other. 
+        if blocks is [1,2,3,2,3,3] then the IDXs will be [1], [2,4], [3,5,6] and the PP.IDX[:][1] will be 
+        [1,2,3, (from IDX=[1])
+        4,5,6,...,10,11,12,... (from IDX=[2,4])
+        7,8,9,...,13,14,15,...,16,17,18,... (from IDX=[3,5,6])
+        ]
+        */
+        PP->IDX[elm][2] = 6*(b-1)+j; 
+        /*
+        PP.IDX[:][2] indexes blocks. repeats triples for atoms in block. every block jumps by 6.
+        [1,2,3 (for b=1)
+        7,8,9,...,7,8,9 (for b=2)
+        13,14,15,...,13,14,15,...,13,14,15, (for b=3)
+        ]
+        */
+        PP->X[elm] = tr; 
+        /* 
+        PP.X = [
+        1**-.5, 1**-.5, 1**-.5, ...
+        2**-.5, 2**-.5, 2**-.5, ...,  2**-.5, 2**-.5, 2**-.5, ...
+        3**-.5,3**-.5,3**-.5, ..., 3**-.5,3**-.5,3**-.5, ..., 3**-.5,3**-.5,3**-.5, ...
+        ] 
+        */
       }
 
       /* ROTATIONS */
@@ -530,14 +574,54 @@ int dblock_projections2(dSparse_Matrix *PP, PDB_File *PDB,
         {
           for (jj=1; jj<=3; jj++)
           {
-            if (jj==1) {aa=2; bb=3;}
+            if (jj==1) {aa=2; bb=3;} // aa is never bb. always the next indeces following jj
             else if (jj==2) {aa=3; bb=1;}
             else {aa=1; bb=2;}
-            dd = ISQT[ii][aa]*X[i][bb]-ISQT[ii][bb]*X[i][aa];
+            dd = ISQT[ii][aa]*X[i][bb]-ISQT[ii][bb]*X[i][aa]; 
+            /*
+             our transformed intertial tensor, multiplied by coordinates
+             index i for coord of atom in block
+             there are 9 elements in ISQT, so dd will be from the same atom for 9 times (ii and jj loops)
+             dd is a transform of ISQT and X:
+             ii=1,jj=1: ISQT_12*X_3 - ISQT_13*X_2
+             ii=1,jj=2: ISQT_13*X_1 - ISQT_11*X_3
+             ii=1,jj=3: ISQT_11*X_2 - ISQT_12*X_1
+
+             ii=2,jj=1: ISQT_22*X_3 - ISQT_23*X_2
+             ii=2,jj=2: ISQT_23*X_1 - ISQT_21*X_3
+             ii=2,jj=3: ISQT_21*X_2 - ISQT_22*X_1
+
+			 ii=3,jj=1: ISQT_32*X_3 - ISQT_33*X_2
+             ii=3,jj=2: ISQT_33*X_1 - ISQT_31*X_3
+             ii=3,jj=3: ISQT_31*X_2 - ISQT_32*X_1
+            */
             elm++;
             PP->IDX[elm][1] = 3*(IDX[i]-1)+jj;
+            /*
+            PP.IDX[:][1] contains repeates of the indeces, but x9 since we get 9 passes thorugh double ii jj loop
+            [1,2,3, because nbp=1 (from IDX=[1])
+        	(4,5,6,) 4,5,6, (x3 because of 9 ii,jj loops) (10,11,12,) 10,11,12 (x3) (from IDX=[2,4], (TRANSLATIONs from before))
+        	(7,8,9,)  ,13,14,15,...,16,17,18,... (from IDX=[3,5,6])
+        	]
+            */
             PP->IDX[elm][2] = 6*(b-1)+3+ii;
-            PP->X[elm] = dd;
+	        /*
+	        PP.IDX[:][2] indexes blocks. adding ii, which is outer loop, and elm incremented in inner loop so repeats in lengths of 3.
+	        now we fill in the gaps from incrementing by 6
+	        [1,2,3 (for b=1)
+	        (7,8,9,) 10,10,10,11,11,11,12,12,12, (7,8,9) 10,10,10,11,11,11,12,12,12 (for b=2)
+	        13,14,15,...,13,14,15,...,13,14,15, (for b=3)
+	        ]
+	        */
+            PP->X[elm] = dd; 
+            /* PP.X will have the elements from tr and then 9 dd elements for each atom in the block, if the block is more than 1 big
+	        here we use the short hand dd1 ... dd9 to mean the 9 different values that dd has. in reality the 9 sets are different because i is different
+	        PP.X = [
+	        1**-.5, 1**-.5, 1**-.5, 
+	        2**-.5, 2**-.5, 2**-.5, dd1 ... dd9,  2**-.5, 2**-.5, 2**-.5, dd1 ... dd9
+	        3**-.5,3**-.5,3**-.5, dd1 ... dd9, 3**-.5,3**-.5,3**-.5, dd1 ... dd9, 3**-.5,3**-.5,3**-.5, dd1 ... dd9
+	        ] 
+	        */
 	        }
         }
       }

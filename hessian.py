@@ -1,6 +1,7 @@
 import numpy as np
 import scipy
 from numba import jit
+# TODO: cupy functions
 
 @jit(nopython=True)
 def hess_from_coords(coords,cutoff=15.,gamma=1.,sparse=True,kdtree_indeces=None):

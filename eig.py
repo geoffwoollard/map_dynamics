@@ -1,6 +1,7 @@
 import pycuda.gpuarray as gpuarray
 import numpy as np
 import scipy
+# TODO: cupy functions
 
 def gpu_setup():
     import pycuda.autoinit

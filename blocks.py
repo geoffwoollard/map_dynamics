@@ -3,6 +3,8 @@
 import numpy as np
 import scipy
 import scipy.sparse
+# TODO: cupy functions
+
 
 class Increment(object):
 
@@ -114,7 +116,6 @@ def dblock_projections2_py(coords,blks,pp_idx,pp_x,natm,nblx,bmx):
     IDX = np.zeros(bmx,dtype=np.int32)#ivector(1, bmx);
     #CM = np.zeros(3)#dvector(1, 3);
     #I = np.zeros((3,3))#dmatrix(1, 3, 1, 3);
-    #IC = np.zeros((3,3))#dmatrix(1, 3, 1, 3);
     #W = np.zeros(3)#dvector(1, 3);
     #A = np.zeros((3,3))#dmatrix(1, 3, 1, 3);
     ISQT = np.zeros((3,3))#dmatrix(1, 3, 1, 3);
@@ -135,47 +136,47 @@ def dblock_projections2_py(coords,blks,pp_idx,pp_x,natm,nblx,bmx):
                 IDX[nbp-1]=i 
                 X[nbp-1]=coords[:,i]
                 CM = CM+coords[:,i]
+        assert nbp != 2, 'need 3+ points for a rigid body. eigen decomposition fails for only 2 points'
         
         # translate block centre of mass to origin
         CM = CM/nbp
         X=X-CM
         
-        # TODO: condition on nbp > 1 because do not use I, W, A, ISQT for blocks of one
-        # calculate inertia tensor
-        for k in range(nbp):
-            dd=0
-    #         df = X[k]
-            dd=(X[k]*X[k]).sum() # or np.linalg.norm(X[k])**2
-            for i in range(3):
-                I[i,i] +=  dd - X[k,i]*X[k,i]
-                for j in range(i+1,3):
-                    I[i,j] -= X[k,i]*X[k,j]
-                    I[j,i] = I[i,j]
-        
-        # diagonalize inertia tensor
-        IC = I.copy()
-        # blocksmodule : dsvd (a, w, v) --> (U W Vt) in http://numerical.recipes/webnotes/nr3web2.pdf --> (u,s,vh) in np.linalg.svd
-    #     u, s, vh = np.linalg.svd(IC, full_matrices=False)#,hermitian=True) # s sorted descending
-    #     W = s 
-    #     A = vh.T # transpose corresponds to column eigenvectors in scipy.linalg.eigh
-
-        W,A = scipy.linalg.eigh(IC) # same as svd, check which faster on 3x3 matrices
-        cp = np.cross(A[:,0],A[:,1]) 
-        if np.dot(cp,A[:,2]) < 0:
-            A[:,2] = - A[:,2]
-        
-        # find its square root
-        for i in range(3):
-            for j in range(3):
+        if nbp > 1: # condition on nbp > 1 because do not use I, W, A, ISQT for blocks of one
+            # calculate inertia tensor
+            for k in range(nbp):
                 dd=0
-                for k in range(3):
-                    dd+=A[i,k]*A[j,k]/np.sqrt(W[k]) # divide by zero!
-                ISQT[i,j]=dd
+        #         df = X[k]
+                dd=(X[k]*X[k]).sum() # or np.linalg.norm(X[k])**2
+                for i in range(3):
+                    I[i,i] +=  dd - X[k,i]*X[k,i]
+                    for j in range(i+1,3):
+                        I[i,j] -= X[k,i]*X[k,j]
+                        I[j,i] = I[i,j]
+            
+            # diagonalize inertia tensor
+            # blocksmodule : dsvd (a, w, v) --> (U W Vt) in http://numerical.recipes/webnotes/nr3web2.pdf --> (u,s,vh) in np.linalg.svd
+        #     u, s, vh = np.linalg.svd(IC, full_matrices=False)#,hermitian=True) # s sorted descending
+        #     W = s 
+        #     A = vh.T # transpose corresponds to column eigenvectors in scipy.linalg.eigh
+
+            W,A = scipy.linalg.eigh(I) # same as svd, check which faster on 3x3 matrices
+            cp = np.cross(A[:,0],A[:,1]) 
+            if np.dot(cp,A[:,2]) < 0:
+                A[:,2] = - A[:,2]
+            
+            # find its square root
+            for i in range(3):
+                for j in range(3):
+                    dd=0
+                    for k in range(3):
+                        dd+=A[i,k]*A[j,k]/np.sqrt(W[k]) # divide by zero!
+                    ISQT[i,j]=dd
 
         # update pp with the rigid motions of the block
         tr=nbp**-.5
         
-        for i in range(nbp): 
+        for i in range(nbp):
             
             # /* TRANSLATIONS: 3*(IDX[i]-1)+1 = x-COORDINATE OF RESIDUE IDX[i]; 6*(b-1)+1 = x-COORDINATE OF BLOCK b */
             # ie x,y,z coord have j=0,1,2
@@ -186,9 +187,10 @@ def dblock_projections2_py(coords,blks,pp_idx,pp_x,natm,nblx,bmx):
                 elm+=1
 
             # rotations
+            # ie 3x3 rotation in project for residue i is cross product of ISQT and X (np.cross(ISQT,X[i])) TODO: try to vectorize
             if nbp > 1: # WARNING: bad values for nbp=2 because near zero eigenvector and blows up when divide by it
-                for ii in range(3):
-                    for jj in range(3):
+                for ii in range(3): # ii is column in project
+                    for jj in range(3): ## jj is row in project
                         if jj == 0:
                             aa=2
                             bb=3
@@ -198,10 +200,9 @@ def dblock_projections2_py(coords,blks,pp_idx,pp_x,natm,nblx,bmx):
                         else:
                             aa=1
                             bb=2
-                        dd = ISQT[ii][aa-1]*X[i][bb-1] - ISQT[ii][bb-1]*X[i][aa-1]
-                        #print('i,ii,jj,dd',i,ii,jj,dd)
-                        pp_idx[elm,0] = 3*(IDX[i])+jj
-                        pp_idx[elm,1] = 6*(b-1)+3+ii
+                        dd = ISQT[ii][aa-1]*X[i][bb-1] - ISQT[ii][bb-1]*X[i][aa-1] # classic cross product indeces
+                        pp_idx[elm,0] = 3*(IDX[i])+jj # row
+                        pp_idx[elm,1] = 6*(b-1)+3+ii # column
                         pp_x[elm] = dd
                         elm += 1
                         # pp_idx[elm-1] is the last item in pp_idx[elm-1], zeros from pp_idx[elm] onwards
